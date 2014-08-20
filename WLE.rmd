@@ -1,0 +1,135 @@
+---
+title: "WLE.rmd"
+author: "David"
+date: "Monday, August 18, 2014"
+output: html_document
+---
+
+#Examination of Weight Lifting Exercises Dataset
+
+
+
+##Introduction
+
+Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Their movements were monitored using four detectors strapped to their forearm, upperarm, waist and to the dumbbell itself. For feature extraction a sliding window approach was used with different lengths from 0.5 second to 2.5 seconds, with 0.5 second overlap. In each step of the sliding window approach the features on the Euler angles (roll, pitch and yaw), as well as the raw accelerometer, gyroscope and magnetometer readings were calculated.
+
+The training data for this project are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this report comes from this source: 
+http://groupware.les.inf.puc-rio.br/har. 
+
+##Method
+
+The algorithm selected to predict the quality of execution variable (classe) is random forest.  This uses a decision tree approach with bootstrapping to generate a "forest" of potentail trees.  New trees are developed by restricting the number of variables that can be randomly selected at each node.  This increases the variance between the trees improving the prediction accuracy.
+
+The random forest methodology was chosen because:
+-It is unexcelled in accuracy among current algorithms for class prediction.
+-It runs efficiently on large data bases.
+-It can handle thousands of input variables without variable deletion.
+-It gives estimates of what variables are important in the classification.
+
+##Download and read files
+
+The files are downloaded and read. The training file is named "training"" and the testing file is named "validation"
+
+```{r}
+
+if (!file.exists("data")) {
+        dir.create("data")
+}
+fileUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileUrltest <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(fileUrl, destfile = "./data/training.csv")
+download.file(fileUrltest, destfile = "./data/testing.csv")
+
+#Read the relevant tables.
+training<- read.csv( "./data/training.csv")
+validation <- read.csv( "./data/testing.csv")
+```
+
+##Preprocess files
+
+Some rows represent a summary of previous observations (the 2.5sec window as opposed to the 0.5).  As the test data file does not provide this data our training and validation data files need to exclude them as well.
+
+The measurements described in the introduction represent four measurement devices providing four measures each in three dimensions.  This provides 48 predictors plus the predicted variable (classe).  The next step of the preprocessing is to reduce the files to these 49 rows.  This requires the removal of all extraneous variables (names, time, etc) which might give invalid correlations. 
+
+No further preprocessing was undertaken as the random forest method is not sensitive to issues of skewness etc..
+
+
+```{r}
+
+library(caret)
+training <- training[training$new_window=="no",]
+training <- training[,c(8:10,37:48,60:68,84:86,113:124,151:160)]
+nzv <- nearZeroVar(training,saveMetrics=T)
+dim(training) 
+
+validation <- validation[,c(8:10,37:48,60:68,84:86,113:124,151:160)]
+```
+
+Finally we checked that the remaining predictors are valid by ensuring that they do not have a near zero variance (none do, see appendix). This gave a data frame of 19216 rows and 49 columns.
+
+##Create a training and testing set
+
+The random forest uses a bootstrap method to estimates out of bag error (oob). This is used to estimate the optimal mtry (number of variables available for selection at each node)and hence does not provide an independent test of the accuracy of the final model.  
+
+Therefore the training file needs to be split into a training file (on which the model is built) and a teating file which will allow for cross validation and the calculation of the out of sample error
+
+```{r}
+
+set.seed(1334)
+
+inTraining <- createDataPartition(y=training$classe,p=0.6,list=FALSE)
+training <- training[inTraining,]
+testing <- training[-inTraining,]
+```
+
+##Build model
+
+As already explained the random forest method was adopted.  However because the default approach was too computationally demanding for my PC the "traincontrol" argument was used.  This provided for a 4 fold cross validation.
+
+```{r}
+modFit <- train(classe~.,data=training,method="rf",trControl = trainControl(method = "cv", number = 4, allowParallel = TRUE,verboseIter = TRUE))
+print(modFit)
+```
+
+The model indicated the optimal mtry was 20 and this adopted model gives an accuracy of 0.988.
+
+##Predict result on test data
+
+To calculate out of sample error this model was applied to the testing data and its results compared to the actual classe values using the confusion matrix function.
+
+```{r}
+pred <- predict(modFit,testing)
+print(confusionMatrix(pred,testing$classe))
+```
+
+The confusion matrix predicts 0 out of sample error and therefore there is no opportunity to improve the model.
+
+##Predict results for 20 test cases
+
+Finally the model is used to predict the classe variable for the 20 test cases provided.  It correctly predicts all 20.
+
+```{r}
+
+answers <- predict(modFit,validation)
+print(answers)
+```
+
+##Appendix
+
+```{r}
+
+print(nzv)
+```
+
+##References
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013
